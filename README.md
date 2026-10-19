@@ -4,7 +4,7 @@ Sistem za zakazivanje događaja - Aplikacija za planiranje događaja, koja koris
 
 
 
-Tim:
+**Tim:**
 
 
 
@@ -18,7 +18,7 @@ Ognjen Bruksanin 128/24 SI | Github: giolegenda
 
 
 
-Uloge:
+**Uloge:**
 
 
 
@@ -36,7 +36,7 @@ Admin – Upravlja nalozima, nadgleda sadržaje i sprečava prevare
 
 
 
-Stanja:
+**Stanja:**
 
 
 
@@ -56,7 +56,7 @@ I poseduje dodatno stanje: Otkazan
 
 
 
-Pravila:
+**Pravila:**
 
 
 
@@ -80,7 +80,7 @@ Pravila:
 
 
 
-Rad bez Mreže:
+**Rad bez Mreže:**
 
 
 
@@ -98,7 +98,7 @@ Izmene se čuvaju lokalno i ažuriraju se kada se veza ponovo uspostavi
 
 
 
-Posao za osoblje:
+**Posao za osoblje:**
 
 
 
@@ -145,6 +145,4 @@ Bez prijave na sistem posetiocima je dostupan:
 
 
 \- Pregled reputacija hostova i korisnika
-
-
 
