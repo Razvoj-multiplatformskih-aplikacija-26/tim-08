@@ -25,3 +25,16 @@ class PromeniStanjeEvent extends DogadjajEvent {
 class SimulirajGreskuEvent extends DogadjajEvent {
   const SimulirajGreskuEvent();
 }
+
+class PromeniKapacitetEvent extends DogadjajEvent {
+  final DogadjajId id;
+  final int noviKapacitet;
+
+  const PromeniKapacitetEvent({
+    required this.id,
+    required this.noviKapacitet,
+  });
+
+  @override
+  List<Object?> get props => [id, noviKapacitet];
+}

@@ -6,4 +6,5 @@ abstract interface class DogadjajRepository {
   Future<List<Dogadjaj>> getDogadjaji();
   Future<Dogadjaj> promeniStanje(DogadjajId id, StanjeDogadjaja novoStanje);
   Future<Dogadjaj> kreirajDogadjaj(Dogadjaj dogadjaj);
+  Future<Dogadjaj> promeniKapacitet(DogadjajId id, int noviKapacitet);
 }

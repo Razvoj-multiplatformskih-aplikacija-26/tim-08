@@ -9,10 +9,10 @@ class Preliminarni extends StanjeDogadjaja {
   String get naziv => 'Preliminarni';
 }
 
-class PustenUJavnost extends StanjeDogadjaja {
-  const PustenUJavnost();
+class Objavljen extends StanjeDogadjaja {
+  const Objavljen();
   @override
-  String get naziv => 'Pušten u javnost';
+  String get naziv => 'Objavljen';
 }
 
 class OdrzavaSe extends StanjeDogadjaja {
@@ -36,10 +36,10 @@ class Otkazan extends StanjeDogadjaja {
 /// Funkcija koja definira koji su prelazi između stanja dozvoljeni (Zahtev 2)
 bool jeDozvoljenPrelaz(StanjeDogadjaja trenutno, StanjeDogadjaja novo) {
   return switch ((trenutno, novo)) {
-    (Preliminarni(), PustenUJavnost()) => true,
+    (Preliminarni(), Objavljen()) => true,
     (Preliminarni(), Otkazan()) => true,
-    (PustenUJavnost(), OdrzavaSe()) => true,
-    (PustenUJavnost(), Otkazan()) => true,
+    (Objavljen(), OdrzavaSe()) => true,
+    //(Objavljen(), Otkazan()) => true,
     (OdrzavaSe(), Odrzan()) => true,
     // Otkazan i Odrzan su konačna stanja
     _ => false,

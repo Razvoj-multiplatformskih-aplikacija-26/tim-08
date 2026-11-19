@@ -32,7 +32,7 @@ class BackofficeApp extends StatelessWidget {
 
 class MockBackofficeRepository implements DogadjajRepository {
   final List<Dogadjaj> _dogadjaji = [
-    Dogadjaj(id: DogadjajId(1), naziv: 'Bajaga i instruktori comeback tour, Subotica', stanje: PustenUJavnost(), kapacitet: 120, hostReputacija: 4.8, opis:'Posle 5 godina kuvanja novog albuma...'),
+    Dogadjaj(id: DogadjajId(1), naziv: 'Bajaga i instruktori comeback tour, Subotica', stanje: Objavljen(), kapacitet: 120, hostReputacija: 4.8, opis:'Posle 5 godina kuvanja novog albuma...'),
     Dogadjaj(id: DogadjajId(2), naziv: 'Prljavo skladište tour, Batajnica', stanje: Preliminarni(), kapacitet: 30, hostReputacija: 2.2, opis:'Opis 2'),
     Dogadjaj(id: DogadjajId(3), naziv: 'Mongolian Throat Singing Festival, Konjarnik', stanje: OdrzavaSe(), kapacitet: 80, hostReputacija: 3.9, opis:'Opis 3'),
     Dogadjaj(id: DogadjajId(4), naziv: 'Kokoške za KFC, New album tour', stanje: Odrzan(), kapacitet: 50, hostReputacija: 3.5, opis:'Opis 4'),
@@ -71,6 +71,28 @@ class MockBackofficeRepository implements DogadjajRepository {
     _dogadjaji.add(dogadjaj);
     return dogadjaj;
   }
+
+  @override
+  Future<Dogadjaj> promeniKapacitet(
+      DogadjajId id,
+      int noviKapacitet,
+      ) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    final index = _dogadjaji.indexWhere((d) => d.id == id);
+
+    if (index != -1) {
+      final azurirani = _dogadjaji[index].copyWith(
+        kapacitet: noviKapacitet,
+      );
+
+      _dogadjaji[index] = azurirani;
+
+      return azurirani;
+    }
+
+    throw Exception('Događaj nije pronađen!');
+  }
 }
 
 class BackofficeDashboardScreen extends StatefulWidget {
@@ -96,6 +118,56 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
     super.dispose();
   }
 
+  void _pomeriIzbor(BuildContext context, int smer) {
+    final stanje = context.read<DogadjajBloc>().state;
+
+    if (stanje is! DogadjajiLoaded || stanje.dogadjaji.isEmpty) {
+      return;
+    }
+
+    final dogadjaji = stanje.dogadjaji;
+
+    final trenutniIndex = dogadjaji.indexWhere(
+          (d) => d.id == _selektovaniDogadjaj?.id,
+    );
+
+    int sledeciIndex;
+
+    if (trenutniIndex == -1) {
+      sledeciIndex = smer > 0 ? 0 : dogadjaji.length - 1;
+    } else {
+      sledeciIndex = (trenutniIndex + smer)
+          .clamp(0, dogadjaji.length - 1)
+          .toInt();
+    }
+
+    setState(() {
+      _selektovaniDogadjaj = dogadjaji[sledeciIndex];
+    });
+  }
+
+  Future<void> _izmeniKapacitet(Dogadjaj dogadjaj) async {
+    final noviKapacitet = await showDialog<int>(
+      context: context,
+      builder: (context) {
+        return _IzmenaKapacitetaDialog(
+          pocetniKapacitet: dogadjaj.kapacitet,
+        );
+      },
+    );
+
+    if (!mounted || noviKapacitet == null) {
+      return;
+    }
+
+    context.read<DogadjajBloc>().add(
+      PromeniKapacitetEvent(
+        id: dogadjaj.id,
+        noviKapacitet: noviKapacitet,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return CallbackShortcuts(
@@ -105,6 +177,13 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Osveženi podaci preko prečice (R)!')),
           );
+        },
+        const SingleActivator(LogicalKeyboardKey.arrowDown): () {
+          _pomeriIzbor(context, 1);
+        },
+
+        const SingleActivator(LogicalKeyboardKey.arrowUp): () {
+          _pomeriIzbor(context, -1);
         },
       },
       child: Focus(
@@ -157,8 +236,10 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
                           final d = dogadjaji[index];
                           return Card(
                             child: ListTile(
+                              selected: _selektovaniDogadjaj?.id == d.id,
+                              selectedTileColor: Colors.indigo.withValues(alpha: 0.25),
                               title: Text(d.naziv),
-                              subtitle: Text('Stanje: ${d.stanje.runtimeType}'),
+                              subtitle: Text('Stanje: ${d.stanje.naziv}'),
                               onTap: () {
                                 setState(() {
                                   _selektovaniDogadjaj = d;
@@ -203,7 +284,7 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
                                         DataCell(Text(d.naziv)),
                                         DataCell(Text('${d.kapacitet}')),
                                         DataCell(Text('${d.hostReputacija}')),
-                                        DataCell(Text(d.stanje.runtimeType.toString())),
+                                        DataCell(Text(d.stanje.naziv)),
                                       ],
                                     );
                                   }).toList(),
@@ -241,48 +322,99 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
                                           const SizedBox(height: 8),
                                           Text('Naziv: ${_selektovaniDogadjaj!.naziv}', style: const TextStyle(fontSize: 16)),
                                           const SizedBox(height: 8),
+
                                           Text('Kapacitet: ${_selektovaniDogadjaj!.kapacitet}'),
                                           const SizedBox(height: 8),
+
+                                          OutlinedButton.icon(
+                                            onPressed: () {
+                                              _izmeniKapacitet(_selektovaniDogadjaj!);
+                                            },
+                                            icon: const Icon(Icons.edit),
+                                            label: const Text('Izmeni kapacitet'),
+                                          ),
+
+                                          const SizedBox(height: 8),
                                           Text('Reputacija hosta: ${_selektovaniDogadjaj!.hostReputacija}'),
+
                                           const SizedBox(height: 8),
                                           Text('Opis: ${_selektovaniDogadjaj!.opis}'),
                                           const SizedBox(height: 16),
                                           Text('Trenutno stanje: ${_selektovaniDogadjaj!.stanje.runtimeType}', 
                                             style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
                                           const Spacer(),
-                                          const Text('Akcije osoblja:', style: TextStyle(fontWeight: FontWeight.bold)),
-                                          const SizedBox(height: 8),
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: ElevatedButton.icon(
-                                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                                                  onPressed: (_selektovaniDogadjaj!.stanje is Otkazan || _selektovaniDogadjaj!.stanje is Odrzan)
-                                                      ? null
-                                                      : () {
-                                                          BlocProvider.of<DogadjajBloc>(context).add(
-                                                            PromeniStanjeEvent(id: _selektovaniDogadjaj!.id, novoStanje: Otkazan()),
-                                                          );
-                                                        },
-                                                  icon: const Icon(Icons.cancel),
-                                                  label: const Text('Otkaži'),
-                                                ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                child: ElevatedButton.icon(
-                                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                                                  onPressed: () {
-                                                    BlocProvider.of<DogadjajBloc>(context).add(
-                                                      PromeniStanjeEvent(id: _selektovaniDogadjaj!.id, novoStanje: PustenUJavnost()),
-                                                    );
-                                                  },
-                                                  icon: const Icon(Icons.check_circle),
-                                                  label: const Text('Aktiviraj'),
-                                                ),
-                                              ),
-                                            ],
+
+                                          const Text(
+                                            'Akcije osoblja:',
+                                            style: TextStyle(fontWeight: FontWeight.bold),
                                           ),
+                                          const SizedBox(height: 8),
+
+                                          Builder(
+                                            builder: (context) {
+                                              // Proveravamo koje akcije su dozvoljene
+                                              final dogadjaj = _selektovaniDogadjaj!;
+
+                                              final mozeOtkazati = jeDozvoljenPrelaz(
+                                                dogadjaj.stanje,
+                                                const Otkazan(),
+                                              );
+
+                                              final mozeObjaviti = jeDozvoljenPrelaz(
+                                                dogadjaj.stanje,
+                                                const Objavljen(),
+                                              );
+
+                                              return Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: ElevatedButton.icon(
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.red,
+                                                        foregroundColor: Colors.white,
+                                                      ),
+                                                      onPressed: mozeOtkazati
+                                                          ? () {
+                                                        context.read<DogadjajBloc>().add(
+                                                          PromeniStanjeEvent(
+                                                            id: dogadjaj.id,
+                                                            novoStanje: const Otkazan(),
+                                                          ),
+                                                        );
+                                                      }
+                                                          : null,
+                                                      icon: const Icon(Icons.cancel),
+                                                      label: const Text('Otkaži'),
+                                                    ),
+                                                  ),
+
+                                                  const SizedBox(width: 8),
+
+                                                  Expanded(
+                                                    child: ElevatedButton.icon(
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.green,
+                                                        foregroundColor: Colors.white,
+                                                      ),
+                                                      onPressed: mozeObjaviti
+                                                          ? () {
+                                                        context.read<DogadjajBloc>().add(
+                                                          PromeniStanjeEvent(
+                                                            id: dogadjaj.id,
+                                                            novoStanje: const Objavljen(),
+                                                          ),
+                                                        );
+                                                      }
+                                                          : null,
+                                                      icon: const Icon(Icons.check_circle),
+                                                      label: const Text('Objavi'),
+                                                    ),
+                                                  ),
+                                                ],
+                                              );
+                                            },
+                                          ),
+
                                         ],
                                       ),
                               ),
@@ -299,6 +431,84 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _IzmenaKapacitetaDialog extends StatefulWidget {
+  final int pocetniKapacitet;
+
+  const _IzmenaKapacitetaDialog({
+    required this.pocetniKapacitet,
+  });
+
+  @override
+  State<_IzmenaKapacitetaDialog> createState() =>
+      _IzmenaKapacitetaDialogState();
+}
+
+class _IzmenaKapacitetaDialogState
+    extends State<_IzmenaKapacitetaDialog> {
+
+  late final TextEditingController _controller;
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+
+    _controller = TextEditingController(
+      text: widget.pocetniKapacitet.toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Izmena kapaciteta'),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Novi kapacitet',
+          ),
+          validator: (value) {
+            final broj = int.tryParse(value ?? '');
+
+            if (broj == null || broj <= 0) {
+              return 'Unesite pozitivan ceo broj.';
+            }
+
+            return null;
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+          },
+          child: const Text('Odustani'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (_formKey.currentState!.validate()) {
+              Navigator.of(context).pop(
+                int.parse(_controller.text),
+              );
+            }
+          },
+          child: const Text('Sačuvaj'),
+        ),
+      ],
     );
   }
 }

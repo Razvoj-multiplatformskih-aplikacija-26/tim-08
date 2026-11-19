@@ -11,6 +11,7 @@ class DogadjajBloc extends Bloc<DogadjajEvent, DogadjajState> {
     on<UcitajDogadjajeEvent>(_onUcitajDogadjaje);
     on<PromeniStanjeEvent>(_onPromeniStanje);
     on<SimulirajGreskuEvent>(_onSimulirajGresku);
+    on<PromeniKapacitetEvent>(_onPromeniKapacitet);
   }
 
   void _onSimulirajGresku(SimulirajGreskuEvent event, Emitter<DogadjajState> emit) {
@@ -39,10 +40,60 @@ class DogadjajBloc extends Bloc<DogadjajEvent, DogadjajState> {
     }
   }
 
-  Future<void> _onPromeniStanje(PromeniStanjeEvent event, Emitter<DogadjajState> emit) async {
+  Future<void> _onPromeniStanje(
+      PromeniStanjeEvent event,
+      Emitter<DogadjajState> emit,
+      ) async {
+    final trenutnoStanje = state;
+
+    if (trenutnoStanje is! DogadjajiLoaded) {
+      return;
+    }
+
+    Dogadjaj? dogadjaj;
+
+    for (final d in trenutnoStanje.dogadjaji) {
+      if (d.id == event.id) {
+        dogadjaj = d;
+        break;
+      }
+    }
+
+    if (dogadjaj == null) {
+      emit(const DogadjajiError('Događaj nije pronađen!'));
+      return;
+    }
+
+    if (!jeDozvoljenPrelaz(dogadjaj.stanje, event.novoStanje)) {
+      emit(const DogadjajiError('Tražena promena stanja nije dozvoljena!'));
+      return;
+    }
+
     try {
       await repository.promeniStanje(event.id, event.novoStanje);
-      // Ponovo učitaj podatke nakon promene
+      add(const UcitajDogadjajeEvent());
+    } catch (e) {
+      emit(DogadjajiError(e.toString()));
+    }
+  }
+
+  Future<void> _onPromeniKapacitet(
+      PromeniKapacitetEvent event,
+      Emitter<DogadjajState> emit,
+      ) async {
+    final rezultat = proveriKapacitet(event.noviKapacitet);
+
+    if (rezultat is GreskaNeodgovarajuciKapacitet) {
+      emit(const DogadjajiError('Kapacitet mora biti veći od 0!'));
+      return;
+    }
+
+    try {
+      await repository.promeniKapacitet(
+        event.id,
+        event.noviKapacitet,
+      );
+
       add(const UcitajDogadjajeEvent());
     } catch (e) {
       emit(DogadjajiError(e.toString()));
