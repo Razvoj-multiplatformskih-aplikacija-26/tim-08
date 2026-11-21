@@ -1,0 +1,21 @@
+name: api_client
+description: Shared HTTP client and remote repository implementations.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+resolution: workspace
+
+dependencies:
+  http: ^1.2.0
+
+  api_contract:
+    path: ../api_contract
+
+  api_mapping:
+    path: ../api_mapping
+
+  domain:
+    path: ../domain

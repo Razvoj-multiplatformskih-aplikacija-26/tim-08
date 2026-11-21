@@ -1,3 +1,7 @@
+import 'package:api_client/api_client.dart';
+import 'session_gate.dart';
+import 'public_reputation.dart';
+import 'event_action_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -23,16 +27,16 @@ final GoRouter _router = GoRouter(
     GoRoute(
       path: '/detalji',
       builder: (context, state) {
-        final args = state.extra as Map<String, dynamic>;
+        final args = state.extra;
+        final dogadjaj = args is Map ? args['dogadjaj'] : null;
+        if (dogadjaj is! Dogadjaj) return const ListaDogadjajaScreen();
 
-        final Dogadjaj dogadjaj = args['dogadjaj'] as Dogadjaj;
-        final VoidCallback onOtkazi = args['onOtkazi'] as VoidCallback;
-
-        return DetaljiDogadjajaScreen(
-          dogadjaj: dogadjaj,
-          onOtkazi: onOtkazi,
-        );
+        return DetaljiDogadjajaScreen(dogadjaj: dogadjaj);
       },
+    ),
+    GoRoute(
+      path: '/kreiraj',
+      builder: (context, state) => const FormaKreiranjaDogadjajaScreen(),
     ),
   ],
 );
@@ -49,68 +53,616 @@ class MainApp extends StatefulWidget {
 
 class DetaljiDogadjajaScreen extends StatelessWidget {
   final Dogadjaj dogadjaj;
-  final VoidCallback onOtkazi;
 
-  const DetaljiDogadjajaScreen({super.key, required this.dogadjaj, required this.onOtkazi});
+  const DetaljiDogadjajaScreen({super.key, required this.dogadjaj});
+
+  Widget _akcijaPrijave(BuildContext context, Dogadjaj trenutniDogadjaj) {
+    return BlocBuilder<DogadjajBloc, DogadjajState>(
+      builder: (context, state) {
+        if (state is DogadjajiLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (state is DogadjajiError) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(state.poruka, style: const TextStyle(color: Colors.red)),
+              const SizedBox(height: 8),
+              ElevatedButton.icon(
+                onPressed: () {
+                  context.read<DogadjajBloc>().add(
+                    const UcitajDogadjajeEvent(),
+                  );
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Pokušaj ponovo'),
+              ),
+            ],
+          );
+        }
+
+        if (state is DogadjajiEmpty) {
+          return const Text('Nema dostupnih događaja.');
+        }
+
+        if (state is! DogadjajiLoaded) {
+          return const Text('Podaci trenutno nisu dostupni.');
+        }
+
+        final bloc = context.read<DogadjajBloc>();
+        final korisnik = bloc.trenutniKorisnik;
+
+        Prijava? mojaAktivnaPrijava;
+
+        for (final prijava in state.mojePrijave) {
+          if (prijava.dogadjajId == trenutniDogadjaj.id &&
+              prijava.status == StatusPrijave.aktivna) {
+            mojaAktivnaPrijava = prijava;
+            break;
+          }
+        }
+
+
+        if (mojaAktivnaPrijava != null) {
+          return SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              icon: const Icon(Icons.event_busy),
+              label: const Text('Otkaži moju prijavu'),
+              onPressed: () async {
+                final potvrda = await showDialog<bool>(
+                  context: context,
+                  builder: (dialogContext) => AlertDialog(
+                    title: const Text('Potvrda otkazivanja'),
+                    content: Text(
+                      'Da li ste sigurni da želite da otkažete '
+                      'svoju prijavu za događaj '
+                      '"${trenutniDogadjaj.naziv}"?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(dialogContext, false);
+                        },
+                        child: const Text('Odustani'),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () {
+                          Navigator.pop(dialogContext, true);
+                        },
+                        child: const Text('Otkaži prijavu'),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (potvrda == true && context.mounted) {
+                  context.read<DogadjajBloc>().add(
+                    OtkaziPrijavuEvent(prijavaId: mojaAktivnaPrijava!.id),
+                  );
+                }
+              },
+            ),
+          );
+        }
+
+
+        final mozeSePrijaviti = mozeSePrijavitiNaDogadjaj(
+          korisnik,
+          trenutniDogadjaj,
+        );
+
+        if (korisnik.uloga != UlogaKorisnika.korisnik) {
+          return const SizedBox.shrink();
+        }
+
+        if (mozeSePrijaviti) {
+          return SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.event_available),
+              label: const Text('Prijavi se na događaj'),
+              onPressed: () {
+                context.read<DogadjajBloc>().add(
+                  PrijaviSeNaDogadjajEvent(dogadjajId: trenutniDogadjaj.id),
+                );
+              },
+            ),
+          );
+        }
+
+        return const SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: null,
+            child: Text('Prijava nije dostupna'),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _akcijaNapredovanjaDogadjaja(BuildContext context, Dogadjaj dogadjaj) {
+    return BlocBuilder<DogadjajBloc, DogadjajState>(
+      builder: (context, state) {
+        if (state is! DogadjajiLoaded) {
+          return const SizedBox.shrink();
+        }
+
+        final bloc = context.read<DogadjajBloc>();
+        final korisnik = bloc.trenutniKorisnik;
+
+        final novoStanje = sledeceStanjeDogadjaja(dogadjaj.stanje);
+
+        if (novoStanje == null) {
+          return const SizedBox.shrink();
+        }
+
+        final dozvoljeno = mozePromenitiStanjeDogadjaja(
+          korisnik,
+          dogadjaj,
+          novoStanje,
+        );
+
+        if (!dozvoljeno) {
+          return const SizedBox.shrink();
+        }
+
+        final String tekst;
+        final IconData ikonica;
+
+        if (novoStanje is Objavljen) {
+          tekst = 'Objavi događaj';
+          ikonica = Icons.publish;
+        } else if (novoStanje is OdrzavaSe) {
+          tekst = 'Označi da se događaj održava';
+          ikonica = Icons.play_circle;
+        } else {
+          tekst = 'Označi kao održan';
+          ikonica = Icons.check_circle;
+        }
+
+        return SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () {
+              context.read<DogadjajBloc>().add(
+                PromeniStanjeEvent(id: dogadjaj.id, novoStanje: novoStanje),
+              );
+            },
+            icon: Icon(ikonica),
+            label: Text(tekst),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _akcijaOtkazivanjaDogadjaja(BuildContext context, Dogadjaj dogadjaj) {
+    return BlocBuilder<DogadjajBloc, DogadjajState>(
+      builder: (context, state) {
+        if (state is! DogadjajiLoaded) {
+          return const SizedBox.shrink();
+        }
+
+        final bloc = context.read<DogadjajBloc>();
+        final korisnik = bloc.trenutniKorisnik;
+
+        // Only the host who owns this event sees this action.
+        if (korisnik.uloga != UlogaKorisnika.host ||
+            korisnik.id != dogadjaj.hostId) {
+          return const SizedBox.shrink();
+        }
+
+        final mozeOtkazati = mozeOtkazatiDogadjaj(korisnik, dogadjaj);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.grey.shade700,
+                  disabledForegroundColor: Colors.white54,
+                ),
+                icon: const Icon(Icons.cancel),
+                label: const Text('Otkaži moj događaj'),
+                onPressed: mozeOtkazati
+                    ? () async {
+                        final potvrda = await showDialog<bool>(
+                          context: context,
+                          builder: (dialogContext) => AlertDialog(
+                            title: const Text('Potvrda otkazivanja'),
+                            content: Text(
+                              'Da li ste sigurni da želite da '
+                              'otkažete događaj "${dogadjaj.naziv}"?',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.pop(dialogContext, false);
+                                },
+                                child: const Text('Odustani'),
+                              ),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () {
+                                  Navigator.pop(dialogContext, true);
+                                },
+                                child: const Text('Otkaži događaj'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (potvrda == true && context.mounted) {
+                          context.read<DogadjajBloc>().add(
+                            PromeniStanjeEvent(
+                              id: dogadjaj.id,
+                              novoStanje: const Otkazan(),
+                            ),
+                          );
+                        }
+                      }
+                    : null,
+              ),
+            ),
+
+            if (!mozeOtkazati)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Događaj nije moguće otkazati u trenutnom stanju.',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _sekcijaRecenzija(BuildContext context, Dogadjaj dogadjaj) {
+    return BlocBuilder<DogadjajBloc, DogadjajState>(
+      builder: (context, state) {
+        if (state is! DogadjajiLoaded) {
+          return const SizedBox.shrink();
+        }
+
+        final korisnik = context.read<DogadjajBloc>().trenutniKorisnik;
+
+        final recenzijeZaDogadjaj = state.recenzije
+            .where((r) => r.dogadjajId == dogadjaj.id)
+            .toList();
+
+        final prosecnaOcena = izracunajProsecnuOcenuDogadjaja(
+          dogadjaj.id,
+          state.recenzije,
+        );
+
+        Prijava? mojaPrijava;
+
+        for (final p in state.mojePrijave) {
+          if (p.dogadjajId == dogadjaj.id &&
+              p.status == StatusPrijave.aktivna) {
+            mojaPrijava = p;
+            break;
+          }
+        }
+
+        final vecJeOcenio = state.recenzije.any(
+          (r) => r.dogadjajId == dogadjaj.id && r.autorId == korisnik.id,
+        );
+
+        final mozeOstaviti =
+            mojaPrijava != null &&
+            mozeOstavitiRecenziju(
+              korisnik,
+              mojaPrijava,
+              dogadjaj,
+              postojeceRecenzije: state.recenzije,
+            );
+
+        final reputacijaHosta = izracunajReputacijuHosta(
+          hostId: dogadjaj.hostId,
+          dogadjaji: state.dogadjaji,
+          recenzije: state.recenzije,
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Divider(height: 32),
+
+            const Text(
+              'Recenzije i reputacija',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+
+            const SizedBox(height: 12),
+
+            Text(
+              prosecnaOcena == null
+                  ? 'Ocena događaja: Još nema recenzija'
+                  : 'Ocena događaja: '
+                        '${prosecnaOcena.toStringAsFixed(2)} / 5',
+            ),
+
+            const SizedBox(height: 6),
+
+            Text(
+              reputacijaHosta == null
+                  ? 'Reputacija hosta prema recenzijama: Nema ocena'
+                  : 'Reputacija hosta prema recenzijama: '
+                        '${reputacijaHosta.toStringAsFixed(2)} / 5',
+            ),
+
+            const SizedBox(height: 16),
+
+            if (mozeOstaviti)
+              FormaRecenzijeWidget(dogadjaj: dogadjaj)
+            else if (vecJeOcenio)
+              const Text(
+                'Već ste ostavili recenziju za ovaj događaj.',
+                style: TextStyle(color: Colors.green),
+              )
+            else if (korisnik.uloga == UlogaKorisnika.korisnik &&
+                dogadjaj.stanje is Odrzan)
+              const Text(
+                'Recenziju mogu ostaviti samo korisnici '
+                'koji imaju aktivnu prijavu za ovaj događaj.',
+              ),
+
+            if (recenzijeZaDogadjaj.isNotEmpty) ...[
+              const SizedBox(height: 16),
+
+              const Text(
+                'Ostavljene recenzije:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+
+              ...recenzijeZaDogadjaj.map(
+                (r) => Card(
+                  child: ListTile(
+                    leading: CircleAvatar(child: Text('${r.ocena}')),
+                    title: Text('Korisnik #${r.autorId.value}'),
+                    subtitle: Text(r.komentar),
+                    trailing: const Icon(Icons.star),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(dogadjaj.naziv)),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('ID događaja: ${dogadjaj.id}', style: const TextStyle(fontSize: 16)),
-            const SizedBox(height: 8),
-            Text('Naziv: ${dogadjaj.naziv}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text('Trenutno stanje: ${dogadjaj.stanje.naziv}', style: TextStyle(fontSize: 16, color: dogadjaj.stanje.boja, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text('Maksimalni kapacitet: ${dogadjaj.kapacitet}', style: const TextStyle(fontSize: 16)),
-            const SizedBox(height: 8),
-            Text('Reputacija hosta: ${dogadjaj.hostReputacija}', style: const TextStyle(fontSize: 16)),
-            const SizedBox(height: 10),
-            Text('Opis: ${dogadjaj.opis}', style: const TextStyle(fontSize: 18)),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: (dogadjaj.stanje is Otkazan || dogadjaj.stanje is Odrzan) ? null : () {
-                  showDialog(
-                    context: context,
-                    builder: (dialogContext) => AlertDialog(
-                      title: const Text('Potvrda otkazivanja'),
-                      content: Text('Da li ste sigurni da želite da otkažete događaj "${dogadjaj.naziv}"?'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(dialogContext),
-                          child: const Text('Odustani'),
-                        ),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                          onPressed: () {
-                            Navigator.pop(dialogContext);
-                            onOtkazi();
-                          },
-                          child: const Text('Otkaži događaj'),
-                        ),
-                      ],
+    return BlocBuilder<DogadjajBloc, DogadjajState>(
+      builder: (context, state) {
+
+        Dogadjaj trenutniDogadjaj = dogadjaj;
+
+        if (state is DogadjajiLoaded) {
+          for (final d in state.dogadjaji) {
+            if (d.id == dogadjaj.id) {
+              trenutniDogadjaj = d;
+              break;
+            }
+          }
+        }
+
+        return Scaffold(
+          appBar: AppBar(title: Text(trenutniDogadjaj.naziv)),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'ID događaja: ${trenutniDogadjaj.id.value}',
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+
+                Text(
+                  'Naziv: ${trenutniDogadjaj.naziv}',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                Text(
+                  'Trenutno stanje: ${trenutniDogadjaj.stanje.naziv}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: trenutniDogadjaj.stanje.boja,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                Text(
+                  'Kapacitet: ${trenutniDogadjaj.kapacitet}',
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+
+                Text(
+                  'Reputacija hosta: ${trenutniDogadjaj.hostReputacija.toStringAsFixed(2)} / 5',
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 10),
+
+                Text(
+                  'Opis: ${trenutniDogadjaj.opis}',
+                  style: const TextStyle(fontSize: 18),
+                ),
+
+                const SizedBox(height: 20),
+
+                _akcijaPrijave(context, trenutniDogadjaj),
+
+                const SizedBox(height: 12),
+
+                _akcijaNapredovanjaDogadjaja(context, trenutniDogadjaj),
+
+                const SizedBox(height: 12),
+
+                _akcijaOtkazivanjaDogadjaja(context, trenutniDogadjaj),
+
+                const SizedBox(height: 20),
+
+                _sekcijaRecenzija(context, trenutniDogadjaj),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class FormaRecenzijeWidget extends StatefulWidget {
+  final Dogadjaj dogadjaj;
+
+  const FormaRecenzijeWidget({super.key, required this.dogadjaj});
+
+  @override
+  State<FormaRecenzijeWidget> createState() => _FormaRecenzijeWidgetState();
+}
+
+class _FormaRecenzijeWidgetState extends State<FormaRecenzijeWidget> {
+  final _formKey = GlobalKey<FormState>();
+  final _komentarController = TextEditingController();
+
+  int _ocena = 5;
+
+  @override
+  void dispose() {
+    _komentarController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Ostavite recenziju',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+
+              const SizedBox(height: 16),
+
+              DropdownButtonFormField<int>(
+                initialValue: _ocena,
+                decoration: const InputDecoration(
+                  labelText: 'Ocena',
+                  border: OutlineInputBorder(),
+                ),
+                items: List.generate(5, (index) {
+                  final ocena = index + 1;
+
+                  return DropdownMenuItem(
+                    value: ocena,
+                    child: Text('$ocena / 5'),
+                  );
+                }),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      _ocena = value;
+                    });
+                  }
+                },
+                validator: (value) {
+                  if (value == null ||
+                      proveriOcenuRecenzije(value) is GreskaOcenaIzvanOpsega) {
+                    return 'Izaberite ocenu od 1 do 5!';
+                  }
+
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              TextFormField(
+                controller: _komentarController,
+                maxLines: 4,
+                maxLength: 500,
+                decoration: const InputDecoration(
+                  labelText: 'Komentar',
+                  alignLabelWithHint: true,
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  final rezultat = proveriDuzinuKomentara(value ?? '');
+
+                  if (rezultat is GreskaKomentarPrekratak) {
+                    return 'Komentar mora imati najmanje 5 karaktera!';
+                  }
+
+                  if (rezultat is GreskaKomentarPredugacak) {
+                    return 'Komentar ne može imati više od 500 karaktera!';
+                  }
+
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              ElevatedButton.icon(
+                onPressed: () {
+                  if (!_formKey.currentState!.validate()) {
+                    return;
+                  }
+
+                  context.read<DogadjajBloc>().add(
+                    DodajRecenzijuEvent(
+                      dogadjajId: widget.dogadjaj.id,
+                      ocena: _ocena,
+                      komentar: _komentarController.text.trim(),
                     ),
                   );
                 },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                child: const Text('Otkaži dogadjaj'),
+                icon: const Icon(Icons.rate_review),
+                label: const Text('Pošalji recenziju'),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
-
 
 class MainAppState extends State<MainApp> {
   ThemeMode _themeMode = ThemeMode.dark;
@@ -124,130 +676,59 @@ class MainAppState extends State<MainApp> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return BlocProvider(
+  Widget build(BuildContext context) => SessionGate(
+    onSessionClosed: () => _router.go('/'),
+    builder: (client, actor) => BlocProvider(
+      key: ValueKey(actor.id.value),
       create: (context) => DogadjajBloc(
-        repository: MockDogadjajRepository(),
-      )..add(UcitajDogadjajeEvent()),
+        repository: RemoteDogadjajRepository(client: client),
+        prijavaRepository: RemotePrijavaRepository(client: client),
+        recenzijaRepository: RemoteRecenzijaRepository(client: client),
+        trenutniKorisnik: actor,
+        ucitajKorisnika: actor.uloga == UlogaKorisnika.host
+            ? client.currentUser
+            : null,
+      )..add(const UcitajDogadjajeEvent()),
       child: MaterialApp.router(
         title: 'Sistem za zakazivanje dogadjaja',
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue, brightness: Brightness.light),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.blue,
+            brightness: Brightness.light,
+          ),
           useMaterial3: true,
         ),
         darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue, brightness: Brightness.dark),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.blue,
+            brightness: Brightness.dark,
+          ),
           useMaterial3: true,
         ),
         themeMode: _themeMode,
         debugShowCheckedModeBanner: false,
         routerConfig: _router,
+        builder: (context, child) => EventActionFeedback(child: child!),
       ),
-    );
-  }
-}
-
-class MockDogadjajRepository implements DogadjajRepository {
-  bool _simulirajGresku = false;
-
-  void setSimulirajGresku(bool vrednost) {
-    _simulirajGresku = vrednost;
-  }
-
-  //laznjaci
-  final List<Dogadjaj> _dogadjaji = [
-    Dogadjaj(id: DogadjajId(1), naziv: 'Bajaga i instruktori comeback tour, Subotica', stanje: Objavljen(), kapacitet: 120, hostReputacija: 4.8, opis:'neki opis'),
-    Dogadjaj(id: DogadjajId(2), naziv: 'Prljavo skladište tour, Batajnica', stanje: Preliminarni(), kapacitet: 30, hostReputacija: 2.2, opis:'neki opis'),
-    Dogadjaj(id: DogadjajId(3), naziv: 'Mongolian Throat Singing Festival, Konjarnik', stanje: OdrzavaSe(), kapacitet: 80, hostReputacija: 3.9, opis:'neki opis'),
-    Dogadjaj(id: DogadjajId(4), naziv: 'Kokoške za KFC, New album tour', stanje: Odrzan(), kapacitet: 50, hostReputacija: 3.5, opis:'neki opis'),
-    Dogadjaj(id: DogadjajId(5), naziv: 'Yuno Miles dolazi u Karaburmu!', stanje: Otkazan(), kapacitet: 100, hostReputacija: 4.0, opis:'neki opis'),
-    Dogadjaj(id: DogadjajId(6), naziv: 'Karotidne Arterije, Pećinci', stanje: Objavljen(), kapacitet: 40, hostReputacija: 4.2, opis:'neki opis'),
-    Dogadjaj(id: DogadjajId(7), naziv: 'Kino koncert, Beograd', stanje: Preliminarni(), kapacitet: 60, hostReputacija: 5.0, opis:'neki opis'),
-    Dogadjaj(id: DogadjajId(8), naziv: 'Burme Karaburme Reunion', stanje: OdrzavaSe(), kapacitet: 90, hostReputacija: 4.7, opis:'neki opis'),
-    Dogadjaj(id: DogadjajId(9), naziv: 'Palanačke Palme comeback tour', stanje: Odrzan(), kapacitet: 70, hostReputacija: 3.3, opis:'Palanačke Palme obilaze svaku Palanku u Srbiji i u širem reGIOnu u njihovoj najnovijom turi! Počevši od Smederevske Palanke naravno jer je najbolja'),
-    Dogadjaj(id: DogadjajId(10), naziv: 'Michael Jackson comeback tour', stanje: Otkazan(), kapacitet: 150, hostReputacija: 2.0, opis:'Nahhhhhhh i dalje nije ziv'),
-  ];
-
-  @override
-  Future<List<Dogadjaj>> getDogadjaji() async {
-    await Future.delayed(const Duration(milliseconds: 800)); //Simulacija kasnjenja
-    
-    if (_simulirajGresku) {
-      _simulirajGresku = false; //kada se desi greska u simulaciji, stavlja se na false da bi posle radilo kako treba
-      throw Exception('Greška prilikom učitavanja podataka sa servera!');
-    }
-
-    return List.from(_dogadjaji);
-  }
-
-  @override
-  Future<Dogadjaj> promeniStanje(DogadjajId id, StanjeDogadjaja novoStanje) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final index = _dogadjaji.indexWhere((d) => d.id == id);
-    if (index != -1) {
-      final stari = _dogadjaji[index];
-      final azurirani = Dogadjaj(
-        id: stari.id,
-        naziv: stari.naziv,
-        stanje: novoStanje,
-        kapacitet: stari.kapacitet,
-        hostReputacija: stari.hostReputacija,
-        opis: stari.opis,
-      );
-      _dogadjaji[index] = azurirani;
-      return azurirani;
-    }
-    throw Exception('Događaj nije pronađen!');
-  }
-
-  @override
-  Future<Dogadjaj> kreirajDogadjaj(Dogadjaj dogadjaj) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    _dogadjaji.add(dogadjaj);
-    return dogadjaj;
-  }
-
-  @override
-  Future<Dogadjaj> promeniKapacitet(
-      DogadjajId id,
-      int noviKapacitet,
-      ) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    final index = _dogadjaji.indexWhere((d) => d.id == id);
-
-    if (index != -1) {
-      final azurirani = _dogadjaji[index].copyWith(
-        kapacitet: noviKapacitet,
-      );
-
-      _dogadjaji[index] = azurirani;
-
-      return azurirani;
-    }
-
-    throw Exception('Događaj nije pronađen!');
-  }
+    ),
+  );
 }
 
 extension StanjeUiExtension on StanjeDogadjaja {
-  Color get boja {
-    if (this is Preliminarni) return Colors.orange;
-    if (this is Objavljen) return Colors.blue;
-    if (this is OdrzavaSe) return Colors.green;
-    if (this is Odrzan) return Colors.grey;
-    if (this is Otkazan) return Colors.red;
-    return Colors.black;
-  }
+  Color get boja => switch (this) {
+    Preliminarni() => Colors.orange,
+    Objavljen() => Colors.blue,
+    OdrzavaSe() => Colors.green,
+    Odrzan() => Colors.grey,
+    Otkazan() => Colors.red,
+  };
 }
-
 
 class ListaDogadjajaScreen extends StatefulWidget {
   const ListaDogadjajaScreen({super.key});
 
   @override
-  State<ListaDogadjajaScreen> createState() =>
-      _ListaDogadjajaScreenState();
+  State<ListaDogadjajaScreen> createState() => _ListaDogadjajaScreenState();
 }
 
 class _ListaDogadjajaScreenState extends State<ListaDogadjajaScreen> {
@@ -259,25 +740,25 @@ class _ListaDogadjajaScreenState extends State<ListaDogadjajaScreen> {
       appBar: AppBar(
         title: const Text('Event Scheduler (Bloc)'),
         actions: [
-          // Dugme za simulaciju greske
           IconButton(
-            icon: const Icon(Icons.bug_report),
-            tooltip: 'Simuliraj grešku sledećeg zahteva',
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Osveži',
+            onPressed: () =>
+                context.read<DogadjajBloc>().add(const UcitajDogadjajeEvent()),
+          ),
+          // Promena teme
+          IconButton(
+            icon: const Icon(Icons.people_outline),
+            tooltip: 'Reputacije',
             onPressed: () {
-              final repo = BlocProvider.of<DogadjajBloc>(context)
-                  .repository as MockDogadjajRepository;
-
-              repo.setSimulirajGresku(true);
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Sledeći zahtev će izazvati grešku!'),
+              final client = SessionGate.of(context).client;
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => PublicReputation(client: client),
                 ),
               );
             },
           ),
-
-          // Promena teme
           IconButton(
             icon: const Icon(Icons.brightness_6),
             onPressed: () => MainApp.of(context)?.toggleTheme(),
@@ -288,8 +769,7 @@ class _ListaDogadjajaScreenState extends State<ListaDogadjajaScreen> {
             icon: const Icon(Icons.filter_list),
             tooltip: 'Filtriraj po reputaciji hosta',
             onPressed: () async {
-              final double? rezultat =
-              await context.push<double>('/filter');
+              final double? rezultat = await context.push<double>('/filter');
 
               if (rezultat != null && mounted) {
                 setState(() {
@@ -310,17 +790,34 @@ class _ListaDogadjajaScreenState extends State<ListaDogadjajaScreen> {
                 });
               },
             ),
+
+          BlocBuilder<DogadjajBloc, DogadjajState>(
+            builder: (context, state) {
+              if (!mozeKreiratiDogadjaj(
+                context.read<DogadjajBloc>().trenutniKorisnik,
+              )) {
+                return const SizedBox.shrink();
+              }
+              return IconButton(
+                icon: const Icon(Icons.add),
+                tooltip: 'Kreiraj događaj',
+                onPressed: () => context.push('/kreiraj'),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Prijava / odjava',
+            onPressed: () => SessionGate.of(context).signOut(),
+          ),
         ],
       ),
 
       body: BlocBuilder<DogadjajBloc, DogadjajState>(
         builder: (context, state) {
-
           //ucitavanje
           if (state is DogadjajiLoading) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
           //greska
@@ -329,11 +826,7 @@ class _ListaDogadjajaScreenState extends State<ListaDogadjajaScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(
-                    Icons.error_outline,
-                    size: 60,
-                    color: Colors.red,
-                  ),
+                  const Icon(Icons.error_outline, size: 60, color: Colors.red),
                   const SizedBox(height: 16),
 
                   Text(
@@ -370,7 +863,6 @@ class _ListaDogadjajaScreenState extends State<ListaDogadjajaScreen> {
 
           //ucitani podaci
           if (state is DogadjajiLoaded) {
-
             //le filter
             final dogadjaji = state.dogadjaji.where((d) {
               if (_minimalnaReputacija == null) {
@@ -396,7 +888,7 @@ class _ListaDogadjajaScreenState extends State<ListaDogadjajaScreen> {
 
                     Text(
                       'Nema događaja sa reputacijom hosta '
-                          'najmanje ${_minimalnaReputacija!.toStringAsFixed(1)}.',
+                      'najmanje ${_minimalnaReputacija!.toStringAsFixed(1)}.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(fontSize: 16),
                     ),
@@ -429,14 +921,12 @@ class _ListaDogadjajaScreenState extends State<ListaDogadjajaScreen> {
                   child: ListTile(
                     title: Text(
                       d.naziv,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
 
                     subtitle: Text(
                       'Kapacitet: ${d.kapacitet} | '
-                          'Reputacija: ${d.hostReputacija}',
+                      'Reputacija: ${d.hostReputacija}',
                     ),
 
                     trailing: Chip(
@@ -448,22 +938,7 @@ class _ListaDogadjajaScreenState extends State<ListaDogadjajaScreen> {
                     ),
 
                     onTap: () {
-                      context.push(
-                        '/detalji',
-                        extra: {
-                          'dogadjaj': d,
-                          'onOtkazi': () {
-                            context.read<DogadjajBloc>().add(
-                              PromeniStanjeEvent(
-                                id: d.id,
-                                novoStanje: const Otkazan(),
-                              ),
-                            );
-
-                            Navigator.pop(context);
-                          },
-                        },
-                      );
+                      context.push('/detalji', extra: {'dogadjaj': d});
                     },
                   ),
                 );
@@ -478,13 +953,11 @@ class _ListaDogadjajaScreenState extends State<ListaDogadjajaScreen> {
   }
 }
 
-
 class FormaFilterScreen extends StatefulWidget {
   const FormaFilterScreen({super.key});
 
   @override
-  State<FormaFilterScreen> createState() =>
-      _FormaFilterScreenState();
+  State<FormaFilterScreen> createState() => _FormaFilterScreenState();
 }
 
 class _FormaFilterScreenState extends State<FormaFilterScreen> {
@@ -500,9 +973,7 @@ class _FormaFilterScreenState extends State<FormaFilterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Unos minimalne reputacije hosta'),
-      ),
+      appBar: AppBar(title: const Text('Unos minimalne reputacije hosta')),
 
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -510,7 +981,6 @@ class _FormaFilterScreenState extends State<FormaFilterScreen> {
           key: _formKey,
           child: Column(
             children: [
-
               //min rep unos
               TextFormField(
                 controller: _controller,
@@ -555,13 +1025,175 @@ class _FormaFilterScreenState extends State<FormaFilterScreen> {
               ElevatedButton(
                 onPressed: () {
                   if (_formKey.currentState!.validate()) {
-                    final double minimalnaReputacija =
-                    double.parse(_controller.text.trim());
+                    final double minimalnaReputacija = double.parse(
+                      _controller.text.trim(),
+                    );
 
                     context.pop<double>(minimalnaReputacija);
                   }
                 },
                 child: const Text('Primeni filter'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class FormaKreiranjaDogadjajaScreen extends StatefulWidget {
+  const FormaKreiranjaDogadjajaScreen({super.key});
+
+  @override
+  State<FormaKreiranjaDogadjajaScreen> createState() =>
+      _FormaKreiranjaDogadjajaScreenState();
+}
+
+class _FormaKreiranjaDogadjajaScreenState
+    extends State<FormaKreiranjaDogadjajaScreen> {
+  final _formKey = GlobalKey<FormState>();
+
+  final _nazivController = TextEditingController();
+  final _opisController = TextEditingController();
+  final _kapacitetController = TextEditingController();
+  @override
+  void dispose() {
+    _nazivController.dispose();
+    _opisController.dispose();
+    _kapacitetController.dispose();
+    super.dispose();
+  }
+
+  void _sacuvajDogadjaj() {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    final bloc = context.read<DogadjajBloc>();
+    final korisnik = bloc.trenutniKorisnik;
+    final state = bloc.state;
+
+    if (!mozeKreiratiDogadjaj(korisnik)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nemate dozvolu za kreiranje događaja!')),
+      );
+      return;
+    }
+
+    if (state is! DogadjajiLoaded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Podaci trenutno nisu dostupni.')),
+      );
+      return;
+    }
+
+    final noviDogadjaj = Dogadjaj(
+      id: DogadjajId(0),
+      hostId: korisnik.id,
+      naziv: _nazivController.text.trim(),
+      opis: _opisController.text.trim(),
+      stanje: const Preliminarni(),
+      kapacitet: int.parse(_kapacitetController.text.trim()),
+      hostReputacija: korisnik.reputacija,
+    );
+
+    bloc.add(KreirajDogadjajEvent(dogadjaj: noviDogadjaj));
+
+    context.pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Kreiranje događaja')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Informacije o događaju',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+
+              const SizedBox(height: 20),
+
+              TextFormField(
+                controller: _nazivController,
+                decoration: const InputDecoration(
+                  labelText: 'Naziv događaja',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Unesite naziv događaja!';
+                  }
+
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              TextFormField(
+                controller: _opisController,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Opis događaja',
+                  alignLabelWithHint: true,
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Unesite opis događaja!';
+                  }
+
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              TextFormField(
+                controller: _kapacitetController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Maksimalni kapacitet',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  final broj = int.tryParse(value?.trim() ?? '');
+
+                  if (broj == null) {
+                    return 'Unesite validan ceo broj!';
+                  }
+
+                  final rezultat = proveriKapacitet(broj);
+
+                  if (rezultat is GreskaNeodgovarajuciKapacitet) {
+                    return 'Kapacitet mora biti veći od 0!';
+                  }
+
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 20),
+
+              const Text(
+                'Događaj će biti kreiran u preliminarnom stanju. '
+                'Nakon toga možete ga objaviti.',
+                style: TextStyle(color: Colors.grey),
+              ),
+
+              const SizedBox(height: 24),
+
+              ElevatedButton.icon(
+                onPressed: _sacuvajDogadjaj,
+                icon: const Icon(Icons.add),
+                label: const Text('Kreiraj događaj'),
               ),
             ],
           ),

@@ -1,0 +1,16 @@
+name: api_mapping
+description: Converts between API contracts and domain models.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+resolution: workspace
+
+dependencies:
+  api_contract:
+    path: ../api_contract
+
+  domain:
+    path: ../domain

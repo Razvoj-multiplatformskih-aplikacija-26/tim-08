@@ -1,19 +1,9 @@
 name: domain
 description: Za domensku logiku aplikacije za zakazivanje dogadjaja.
-publish_to: 'none'
+publish_to: none
 version: 1.0.0
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: '>=3.6.0 <4.0.0'
 
-dependencies:
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_launcher_icons: ^0.13.1
-
-flutter_launcher_icons:
-  image_path: "assets/images/applogo.png"
-  android: true
-  ios: true
+resolution: workspace

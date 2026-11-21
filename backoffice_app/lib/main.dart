@@ -1,3 +1,7 @@
+import 'package:api_client/api_client.dart';
+import 'package:event_scheduler_app/session_gate.dart';
+import 'package:event_scheduler_app/moderator_accounts.dart';
+import 'package:event_scheduler_app/event_action_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -12,94 +16,40 @@ class BackofficeApp extends StatelessWidget {
   const BackofficeApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return BlocProvider(
+  Widget build(BuildContext context) => SessionGate(
+    backoffice: true,
+    builder: (client, actor) => BlocProvider(
       create: (context) => DogadjajBloc(
-        repository: MockBackofficeRepository(),
-      )..add(UcitajDogadjajeEvent()),
+        repository: RemoteDogadjajRepository(client: client),
+        prijavaRepository: RemotePrijavaRepository(client: client),
+        recenzijaRepository: RemoteRecenzijaRepository(client: client),
+        trenutniKorisnik: actor,
+      )..add(const UcitajDogadjajeEvent()),
       child: MaterialApp(
         title: 'Event Scheduler - Backoffice',
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo, brightness: Brightness.dark),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.indigo,
+            brightness: Brightness.dark,
+          ),
           useMaterial3: true,
         ),
         debugShowCheckedModeBanner: false,
-        home: const BackofficeDashboardScreen(),
+        builder: (context, child) => EventActionFeedback(child: child!),
+        home: BackofficeDashboardScreen(client: client),
       ),
-    );
-  }
-}
-
-class MockBackofficeRepository implements DogadjajRepository {
-  final List<Dogadjaj> _dogadjaji = [
-    Dogadjaj(id: DogadjajId(1), naziv: 'Bajaga i instruktori comeback tour, Subotica', stanje: Objavljen(), kapacitet: 120, hostReputacija: 4.8, opis:'Posle 5 godina kuvanja novog albuma...'),
-    Dogadjaj(id: DogadjajId(2), naziv: 'Prljavo skladište tour, Batajnica', stanje: Preliminarni(), kapacitet: 30, hostReputacija: 2.2, opis:'Opis 2'),
-    Dogadjaj(id: DogadjajId(3), naziv: 'Mongolian Throat Singing Festival, Konjarnik', stanje: OdrzavaSe(), kapacitet: 80, hostReputacija: 3.9, opis:'Opis 3'),
-    Dogadjaj(id: DogadjajId(4), naziv: 'Kokoške za KFC, New album tour', stanje: Odrzan(), kapacitet: 50, hostReputacija: 3.5, opis:'Opis 4'),
-    Dogadjaj(id: DogadjajId(5), naziv: 'Yuno Miles dolazi u Karaburmu!', stanje: Otkazan(), kapacitet: 100, hostReputacija: 4.0, opis:'Opis 5'),
-  ];
-
-  @override
-  Future<List<Dogadjaj>> getDogadjaji() async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return List.from(_dogadjaji);
-  }
-
-  @override
-  Future<Dogadjaj> promeniStanje(DogadjajId id, StanjeDogadjaja novoStanje) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    final index = _dogadjaji.indexWhere((d) => d.id == id);
-    if (index != -1) {
-      final stari = _dogadjaji[index];
-      final azurirani = Dogadjaj(
-        id: stari.id,
-        naziv: stari.naziv,
-        stanje: novoStanje,
-        kapacitet: stari.kapacitet,
-        hostReputacija: stari.hostReputacija,
-        opis: stari.opis,
-      );
-      _dogadjaji[index] = azurirani;
-      return azurirani;
-    }
-    throw Exception('Događaj nije pronađen');
-  }
-
-  @override
-  Future<Dogadjaj> kreirajDogadjaj(Dogadjaj dogadjaj) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    _dogadjaji.add(dogadjaj);
-    return dogadjaj;
-  }
-
-  @override
-  Future<Dogadjaj> promeniKapacitet(
-      DogadjajId id,
-      int noviKapacitet,
-      ) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    final index = _dogadjaji.indexWhere((d) => d.id == id);
-
-    if (index != -1) {
-      final azurirani = _dogadjaji[index].copyWith(
-        kapacitet: noviKapacitet,
-      );
-
-      _dogadjaji[index] = azurirani;
-
-      return azurirani;
-    }
-
-    throw Exception('Događaj nije pronađen!');
-  }
+    ),
+  );
 }
 
 class BackofficeDashboardScreen extends StatefulWidget {
-  const BackofficeDashboardScreen({super.key});
+  const BackofficeDashboardScreen({super.key, required this.client});
+
+  final ApiClient client;
 
   @override
-  State<BackofficeDashboardScreen> createState() => _BackofficeDashboardScreenState();
+  State<BackofficeDashboardScreen> createState() =>
+      _BackofficeDashboardScreenState();
 }
 
 class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
@@ -128,7 +78,7 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
     final dogadjaji = stanje.dogadjaji;
 
     final trenutniIndex = dogadjaji.indexWhere(
-          (d) => d.id == _selektovaniDogadjaj?.id,
+      (d) => d.id == _selektovaniDogadjaj?.id,
     );
 
     int sledeciIndex;
@@ -150,9 +100,7 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
     final noviKapacitet = await showDialog<int>(
       context: context,
       builder: (context) {
-        return _IzmenaKapacitetaDialog(
-          pocetniKapacitet: dogadjaj.kapacitet,
-        );
+        return _IzmenaKapacitetaDialog(pocetniKapacitet: dogadjaj.kapacitet);
       },
     );
 
@@ -161,10 +109,7 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
     }
 
     context.read<DogadjajBloc>().add(
-      PromeniKapacitetEvent(
-        id: dogadjaj.id,
-        noviKapacitet: noviKapacitet,
-      ),
+      PromeniKapacitetEvent(id: dogadjaj.id, noviKapacitet: noviKapacitet),
     );
   }
 
@@ -191,15 +136,30 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
         child: Scaffold(
           appBar: AppBar(
             title: const Text('Backoffice - Upravljanje Događajima (Osoblje)'),
-            actions: const [
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.0),
-                child: Center(
-                  child: Text(
-                    'Prečice: [R] Osveži',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: 'Osveži',
+                onPressed: () => context.read<DogadjajBloc>().add(
+                  const UcitajDogadjajeEvent(),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.manage_accounts),
+                tooltip: 'Nalozi',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ModeratorAccounts(
+                      client: widget.client,
+                      actor: context.read<DogadjajBloc>().trenutniKorisnik,
+                    ),
                   ),
                 ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout),
+                tooltip: 'Odjavi se',
+                onPressed: () => SessionGate.of(context).signOut(),
               ),
             ],
           ),
@@ -212,14 +172,18 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
                 return Center(child: Text('Greška: ${state.poruka}'));
               }
               if (state is DogadjajiEmpty) {
-                return const Center(child: Text('Nema unetih događaja u sistemu.'));
+                return const Center(
+                  child: Text('Nema unetih događaja u sistemu.'),
+                );
               }
               if (state is DogadjajiLoaded) {
                 final dogadjaji = state.dogadjaji;
-                
+
                 if (_selektovaniDogadjaj != null) {
                   try {
-                    _selektovaniDogadjaj = dogadjaji.firstWhere((d) => d.id == _selektovaniDogadjaj!.id);
+                    _selektovaniDogadjaj = dogadjaji.firstWhere(
+                      (d) => d.id == _selektovaniDogadjaj!.id,
+                    );
                   } catch (_) {
                     _selektovaniDogadjaj = null;
                   }
@@ -237,7 +201,9 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
                           return Card(
                             child: ListTile(
                               selected: _selektovaniDogadjaj?.id == d.id,
-                              selectedTileColor: Colors.indigo.withValues(alpha: 0.25),
+                              selectedTileColor: Colors.indigo.withValues(
+                                alpha: 0.25,
+                              ),
                               title: Text(d.naziv),
                               subtitle: Text('Stanje: ${d.stanje.naziv}'),
                               onTap: () {
@@ -262,7 +228,9 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
                               child: SingleChildScrollView(
                                 child: DataTable(
                                   showCheckboxColumn: false,
-                                  headingRowColor: WidgetStateProperty.all(Colors.indigo.withValues()),
+                                  headingRowColor: WidgetStateProperty.all(
+                                    Colors.indigo.withValues(),
+                                  ),
                                   columns: const [
                                     DataColumn(label: Text('ID')),
                                     DataColumn(label: Text('Naziv događaja')),
@@ -271,7 +239,8 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
                                     DataColumn(label: Text('Stanje')),
                                   ],
                                   rows: dogadjaji.map((d) {
-                                    final bool isSelected = _selektovaniDogadjaj?.id == d.id;
+                                    final bool isSelected =
+                                        _selektovaniDogadjaj?.id == d.id;
                                     return DataRow(
                                       selected: isSelected,
                                       onSelectChanged: (_) {
@@ -310,111 +279,133 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
                                         ),
                                       )
                                     : Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           const Text(
                                             'Detalji zapisa (Bočni panel)',
-                                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigoAccent),
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.indigoAccent,
+                                            ),
                                           ),
                                           const Divider(),
                                           const SizedBox(height: 8),
-                                          Text('ID: ${_selektovaniDogadjaj!.id}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                          Text(
+                                            'ID: ${_selektovaniDogadjaj!.id}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
                                           const SizedBox(height: 8),
-                                          Text('Naziv: ${_selektovaniDogadjaj!.naziv}', style: const TextStyle(fontSize: 16)),
+                                          Text(
+                                            'Naziv: ${_selektovaniDogadjaj!.naziv}',
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                            ),
+                                          ),
                                           const SizedBox(height: 8),
 
-                                          Text('Kapacitet: ${_selektovaniDogadjaj!.kapacitet}'),
+                                          Text(
+                                            'Kapacitet: ${_selektovaniDogadjaj!.kapacitet}',
+                                          ),
                                           const SizedBox(height: 8),
 
                                           OutlinedButton.icon(
                                             onPressed: () {
-                                              _izmeniKapacitet(_selektovaniDogadjaj!);
+                                              _izmeniKapacitet(
+                                                _selektovaniDogadjaj!,
+                                              );
                                             },
                                             icon: const Icon(Icons.edit),
-                                            label: const Text('Izmeni kapacitet'),
+                                            label: const Text(
+                                              'Izmeni kapacitet',
+                                            ),
                                           ),
 
                                           const SizedBox(height: 8),
-                                          Text('Reputacija hosta: ${_selektovaniDogadjaj!.hostReputacija}'),
+                                          Text(
+                                            'Reputacija hosta: ${_selektovaniDogadjaj!.hostReputacija}',
+                                          ),
 
                                           const SizedBox(height: 8),
-                                          Text('Opis: ${_selektovaniDogadjaj!.opis}'),
+                                          Text(
+                                            'Opis: ${_selektovaniDogadjaj!.opis}',
+                                          ),
                                           const SizedBox(height: 16),
-                                          Text('Trenutno stanje: ${_selektovaniDogadjaj!.stanje.runtimeType}', 
-                                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
+                                          Text(
+                                            'Trenutno stanje: ${_selektovaniDogadjaj!.stanje.runtimeType}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.amber,
+                                            ),
+                                          ),
                                           const Spacer(),
 
                                           const Text(
                                             'Akcije osoblja:',
-                                            style: TextStyle(fontWeight: FontWeight.bold),
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
                                           const SizedBox(height: 8),
 
                                           Builder(
                                             builder: (context) {
                                               // Proveravamo koje akcije su dozvoljene
-                                              final dogadjaj = _selektovaniDogadjaj!;
+                                              final dogadjaj =
+                                                  _selektovaniDogadjaj!;
+                                              final actor = context
+                                                  .read<DogadjajBloc>()
+                                                  .trenutniKorisnik;
 
-                                              final mozeOtkazati = jeDozvoljenPrelaz(
-                                                dogadjaj.stanje,
-                                                const Otkazan(),
-                                              );
-
-                                              final mozeObjaviti = jeDozvoljenPrelaz(
-                                                dogadjaj.stanje,
-                                                const Objavljen(),
-                                              );
+                                              final mozeOtkazati =
+                                                  mozePromenitiStanjeDogadjaja(
+                                                    actor,
+                                                    dogadjaj,
+                                                    const Otkazan(),
+                                                  );
 
                                               return Row(
                                                 children: [
                                                   Expanded(
                                                     child: ElevatedButton.icon(
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.red,
-                                                        foregroundColor: Colors.white,
-                                                      ),
+                                                      style:
+                                                          ElevatedButton.styleFrom(
+                                                            backgroundColor:
+                                                                Colors.red,
+                                                            foregroundColor:
+                                                                Colors.white,
+                                                          ),
                                                       onPressed: mozeOtkazati
                                                           ? () {
-                                                        context.read<DogadjajBloc>().add(
-                                                          PromeniStanjeEvent(
-                                                            id: dogadjaj.id,
-                                                            novoStanje: const Otkazan(),
-                                                          ),
-                                                        );
-                                                      }
+                                                              context
+                                                                  .read<
+                                                                    DogadjajBloc
+                                                                  >()
+                                                                  .add(
+                                                                    PromeniStanjeEvent(
+                                                                      id: dogadjaj
+                                                                          .id,
+                                                                      novoStanje:
+                                                                          const Otkazan(),
+                                                                    ),
+                                                                  );
+                                                            }
                                                           : null,
-                                                      icon: const Icon(Icons.cancel),
-                                                      label: const Text('Otkaži'),
-                                                    ),
-                                                  ),
-
-                                                  const SizedBox(width: 8),
-
-                                                  Expanded(
-                                                    child: ElevatedButton.icon(
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.green,
-                                                        foregroundColor: Colors.white,
+                                                      icon: const Icon(
+                                                        Icons.cancel,
                                                       ),
-                                                      onPressed: mozeObjaviti
-                                                          ? () {
-                                                        context.read<DogadjajBloc>().add(
-                                                          PromeniStanjeEvent(
-                                                            id: dogadjaj.id,
-                                                            novoStanje: const Objavljen(),
-                                                          ),
-                                                        );
-                                                      }
-                                                          : null,
-                                                      icon: const Icon(Icons.check_circle),
-                                                      label: const Text('Objavi'),
+                                                      label: const Text(
+                                                        'Otkaži',
+                                                      ),
                                                     ),
                                                   ),
                                                 ],
                                               );
                                             },
                                           ),
-
                                         ],
                                       ),
                               ),
@@ -438,18 +429,14 @@ class _BackofficeDashboardScreenState extends State<BackofficeDashboardScreen> {
 class _IzmenaKapacitetaDialog extends StatefulWidget {
   final int pocetniKapacitet;
 
-  const _IzmenaKapacitetaDialog({
-    required this.pocetniKapacitet,
-  });
+  const _IzmenaKapacitetaDialog({required this.pocetniKapacitet});
 
   @override
   State<_IzmenaKapacitetaDialog> createState() =>
       _IzmenaKapacitetaDialogState();
 }
 
-class _IzmenaKapacitetaDialogState
-    extends State<_IzmenaKapacitetaDialog> {
-
+class _IzmenaKapacitetaDialogState extends State<_IzmenaKapacitetaDialog> {
   late final TextEditingController _controller;
   final _formKey = GlobalKey<FormState>();
 
@@ -477,9 +464,7 @@ class _IzmenaKapacitetaDialogState
         child: TextFormField(
           controller: _controller,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Novi kapacitet',
-          ),
+          decoration: const InputDecoration(labelText: 'Novi kapacitet'),
           validator: (value) {
             final broj = int.tryParse(value ?? '');
 
@@ -501,9 +486,7 @@ class _IzmenaKapacitetaDialogState
         ElevatedButton(
           onPressed: () {
             if (_formKey.currentState!.validate()) {
-              Navigator.of(context).pop(
-                int.parse(_controller.text),
-              );
+              Navigator.of(context).pop(int.parse(_controller.text));
             }
           },
           child: const Text('Sačuvaj'),

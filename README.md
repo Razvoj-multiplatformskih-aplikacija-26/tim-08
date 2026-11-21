@@ -1,10 +1,18 @@
 Sistem za zakazivanje događaja
 
+
+Trenutni Nalozi:
+
+Korisnik marko@example.com marko12345
+Korisnik jelena@example.com jelena12345
+Host ana@example.com ana12345
+Host dragan@example.com dragan12345
+Moderator moderator@example.com moderator12345
+
+
 Aplikacija za planiranje događaja, koja koristi sistem reputacije za host i za goste da proceni stvarnu dolaznost unapred kao i kvalitet događaja.
 
 
-Da bi se pristupilo backoffice-u, treba uraditi:
-flutter run -d <Platform> -t backoffice_app/lib/main.dart
 
 Tim:
 

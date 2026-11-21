@@ -39,9 +39,22 @@ bool jeDozvoljenPrelaz(StanjeDogadjaja trenutno, StanjeDogadjaja novo) {
     (Preliminarni(), Objavljen()) => true,
     (Preliminarni(), Otkazan()) => true,
     (Objavljen(), OdrzavaSe()) => true,
-    //(Objavljen(), Otkazan()) => true,
+    (Objavljen(), Otkazan()) => true,
     (OdrzavaSe(), Odrzan()) => true,
     // Otkazan i Odrzan su konačna stanja
     _ => false,
+  };
+}
+
+
+StanjeDogadjaja? sledeceStanjeDogadjaja(
+    StanjeDogadjaja trenutno,
+    ) {
+  return switch (trenutno) {
+    Preliminarni() => const Objavljen(),
+    Objavljen() => const OdrzavaSe(),
+    OdrzavaSe() => const Odrzan(),
+    Odrzan() => null,
+    Otkazan() => null,
   };
 }

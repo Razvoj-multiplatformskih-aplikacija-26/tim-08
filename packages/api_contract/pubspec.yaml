@@ -1,0 +1,9 @@
+name: api_contract
+description: Shared API request, response and error definitions.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+
+resolution: workspace

@@ -1,0 +1,23 @@
+name: event_scheduler_server
+description: Event Scheduler backend.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: '>=3.9.0 <4.0.0'
+
+resolution: workspace
+
+dependencies:
+  relic: 1.2.0
+  postgres: ^3.6.0
+  cryptography: ^2.9.0
+
+  domain:
+    path: ../../packages/domain
+
+  api_contract:
+    path: ../../packages/api_contract
+
+  api_mapping:
+    path: ../../packages/api_mapping

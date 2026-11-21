@@ -3,6 +3,8 @@ import 'id_types.dart';
 
 class Dogadjaj {
   final DogadjajId id;
+  final KorisnikId hostId;
+
   final String naziv;
   final StanjeDogadjaja stanje;
   final int kapacitet;
@@ -11,6 +13,7 @@ class Dogadjaj {
 
   const Dogadjaj({
     required this.id,
+    required this.hostId,
     required this.naziv,
     required this.stanje,
     required this.kapacitet,
@@ -20,6 +23,7 @@ class Dogadjaj {
 
   Dogadjaj copyWith({
     DogadjajId? id,
+    KorisnikId? hostId,
     String? naziv,
     StanjeDogadjaja? stanje,
     int? kapacitet,
@@ -28,6 +32,7 @@ class Dogadjaj {
   }) {
     return Dogadjaj(
       id: id ?? this.id,
+      hostId: hostId ?? this.hostId,
       naziv: naziv ?? this.naziv,
       stanje: stanje ?? this.stanje,
       kapacitet: kapacitet ?? this.kapacitet,
